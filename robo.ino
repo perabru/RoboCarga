@@ -1,165 +1,79 @@
-#include <Servo.h>
+#include <Arduino.h>
+#include <BluetoothSerial.h>
+#include <ESP32Servo.h>
 
-// ==========================================================
-// ROBÔ AUTÔNOMO DE RESGATE
-//
-// Arduino UNO
-// L298N
-// HC-SR04
-// 2 Servos
-//
-// FUNÇÕES:
-//
-// - Navega sozinho
-// - Detecta obstáculos
-// - Desvia sempre para direita
-// - Faz varredura para identificar objeto estreito
-// - Trata objeto estreito como vítima
-// - Aproxima automaticamente
-// - Abaixa a garra
-// - Abre a garra
-// - Captura a vítima
-// - Levanta a vítima
-// - Memoriza o caminho
-// - Faz backtracking físico
-// - Retorna ao ponto inicial
-// - Solta a vítima
-//
-// ==========================================================
+// =====================================================
+// ROBÔ BLUETOOTH ESP32 - RESPOSTA RÁPIDA
+// =====================================================
+
+// ----------------------
+// Bluetooth
+// ----------------------
+
+BluetoothSerial SerialBT;
+
+const char* NOME_BLUETOOTH = "RoboResgateESP32";
 
 
-// ==========================================================
-// PINOS
-// ==========================================================
-
+// ----------------------
 // Servos
-#define SERVO_GARRA_PIN 2
-#define SERVO_BASE_PIN  3
+// ----------------------
 
-// Ponte H
-#define IN1 4
-#define IN2 5
-#define IN3 6
-#define IN4 7
-
-// Ultrassônico
-#define ECHO 8
-#define TRIG 9
-
-
-// ==========================================================
-// SERVOS
-// ==========================================================
+#define SERVO_GARRA_PIN 18
+#define SERVO_BASE_PIN  19
 
 Servo servoGarra;
 Servo servoBase;
 
-
-// ==========================================================
-// AJUSTE DA GARRA
-//
-// CALIBRE ESTES VALORES PARA SUA MECÂNICA
-// ==========================================================
-
-const int GARRA_ABERTA  = 135;
-const int GARRA_FECHADA = 50;
-
-// Servo D3
-const int BASE_ALTA  = 135;
-const int BASE_BAIXA = 45;
+int anguloGarra = 90;
+int anguloBase  = 90;
 
 
-// ==========================================================
-// DISTÂNCIAS
-// ==========================================================
+// ----------------------
+// Ponte H L298N
+// ----------------------
 
-// Começa a considerar algo como obstáculo
-const float DISTANCIA_OBSTACULO = 26.0;
-
-// Distância máxima para analisar se pode ser vítima
-const float DISTANCIA_ANALISE_VITIMA = 24.0;
-
-// Espaço lateral necessário para considerar objeto estreito
-const float DISTANCIA_LATERAL_LIVRE = 32.0;
-
-// Diferença entre centro e lateral
-const float DIFERENCA_OBJETO_ESTREITO = 12.0;
-
-// Distância desejada antes da captura
-const float DISTANCIA_CAPTURA = 10.0;
-
-// Segurança mínima
-const float DISTANCIA_MINIMA = 3.0;
+#define IN1 25
+#define IN2 26
+#define IN3 27
+#define IN4 14
 
 
-// ==========================================================
-// TEMPOS DOS MOTORES
-//
-// NECESSÁRIO CALIBRAR NO SEU ROBÔ
-// ==========================================================
+// ----------------------
+// HC-SR04
+// ----------------------
 
-// Um pequeno passo para frente
-const unsigned long TEMPO_PASSO_FRENTE = 170;
-
-// Pequeno movimento durante aproximação da vítima
-const unsigned long TEMPO_APROXIMACAO = 55;
-
-// Giro aproximado de 90 graus
-const unsigned long TEMPO_GIRO_90 = 430;
-
-// Pequeno giro usado somente para "olhar" para o lado
-const unsigned long TEMPO_SCAN = 105;
-
-// Avanço final para colocar a vítima dentro da garra
-const unsigned long TEMPO_AVANCO_FINAL = 130;
+#define TRIG 32
+#define ECHO 33
 
 
-// ==========================================================
-// MEMÓRIA DO CAMINHO
-// ==========================================================
+// =====================================================
+// BLUETOOTH
+// =====================================================
 
-#define MAX_CAMINHO 220
+String comandoRecebido = "";
 
-char caminho[MAX_CAMINHO];
+unsigned long ultimoCaractere = 0;
 
-int tamanhoCaminho = 0;
-
-
-// ==========================================================
-// ESTADOS
-// ==========================================================
-
-enum Estado {
-
-  PROCURANDO,
-  RESGATANDO,
-  RETORNANDO,
-  FINALIZADO
-
-};
-
-Estado estado = PROCURANDO;
+// Antes estava 80 ms.
+// Agora responde muito mais rápido.
+const unsigned long TEMPO_COMANDO = 15;
 
 
-// ==========================================================
-// CONTROLE
-// ==========================================================
+// =====================================================
+// TELEMETRIA
+// =====================================================
 
-int confirmacaoVitima = 0;
+unsigned long ultimaTelemetria = 0;
 
-const int CONFIRMACOES_NECESSARIAS = 2;
-
-
-// ==========================================================
-// MEMÓRIA DA APROXIMAÇÃO FINAL
-// ==========================================================
-
-unsigned long tempoAproximacaoFinal = 0;
+// Menos leituras automáticas para não interromper
+// os comandos do controle.
+const unsigned long INTERVALO_TELEMETRIA = 1500;
 
 
-// ==========================================================
-// PARAR
-// ==========================================================
+// =====================================================
+// MOTORES
+// =====================================================
 
 void parar() {
 
@@ -168,12 +82,10 @@ void parar() {
 
   digitalWrite(IN3, LOW);
   digitalWrite(IN4, LOW);
+
+  Serial.println("PARADO");
 }
 
-
-// ==========================================================
-// FRENTE
-// ==========================================================
 
 void frente() {
 
@@ -182,12 +94,10 @@ void frente() {
 
   digitalWrite(IN3, HIGH);
   digitalWrite(IN4, LOW);
+
+  Serial.println("FRENTE");
 }
 
-
-// ==========================================================
-// TRÁS
-// ==========================================================
 
 void tras() {
 
@@ -196,12 +106,10 @@ void tras() {
 
   digitalWrite(IN3, LOW);
   digitalWrite(IN4, HIGH);
+
+  Serial.println("TRAS");
 }
 
-
-// ==========================================================
-// DIREITA
-// ==========================================================
 
 void direita() {
 
@@ -210,12 +118,10 @@ void direita() {
 
   digitalWrite(IN3, LOW);
   digitalWrite(IN4, HIGH);
+
+  Serial.println("DIREITA");
 }
 
-
-// ==========================================================
-// ESQUERDA
-// ==========================================================
 
 void esquerda() {
 
@@ -224,1143 +130,524 @@ void esquerda() {
 
   digitalWrite(IN3, HIGH);
   digitalWrite(IN4, LOW);
+
+  Serial.println("ESQUERDA");
 }
 
 
-// ==========================================================
-// MOVIMENTOS
-// ==========================================================
+// =====================================================
+// ULTRASSÔNICO
+// =====================================================
 
-void andarFrente(unsigned long tempo) {
-
-  frente();
-
-  delay(tempo);
-
-  parar();
-
-  delay(60);
-}
-
-
-void andarTras(unsigned long tempo) {
-
-  tras();
-
-  delay(tempo);
-
-  parar();
-
-  delay(60);
-}
-
-
-void girarDireitaPor(unsigned long tempo) {
-
-  direita();
-
-  delay(tempo);
-
-  parar();
-
-  delay(100);
-}
-
-
-void girarEsquerdaPor(unsigned long tempo) {
-
-  esquerda();
-
-  delay(tempo);
-
-  parar();
-
-  delay(100);
-}
-
-
-// ==========================================================
-// MEMORIZAR MOVIMENTO
-//
-// F = frente
-// R = giro direita
-// L = giro esquerda
-// ==========================================================
-
-void registrarMovimento(char movimento) {
-
-  if (tamanhoCaminho >= MAX_CAMINHO) {
-
-    Serial.println(
-      "ATENCAO: memoria do caminho cheia!"
-    );
-
-    return;
-  }
-
-  caminho[tamanhoCaminho] = movimento;
-
-  tamanhoCaminho++;
-}
-
-
-// ==========================================================
-// LEITURA DO HC-SR04
-// ==========================================================
-
-float lerDistanciaSimples() {
+float lerDistancia() {
 
   digitalWrite(TRIG, LOW);
-
   delayMicroseconds(2);
 
   digitalWrite(TRIG, HIGH);
-
   delayMicroseconds(10);
 
   digitalWrite(TRIG, LOW);
 
 
+  // Timeout reduzido para não travar o controle
   unsigned long duracao =
-    pulseIn(ECHO, HIGH, 25000);
+    pulseIn(ECHO, HIGH, 20000);
 
 
   if (duracao == 0) {
 
-    return 999.0;
+    return -1;
   }
 
 
-  float distancia =
-    (duracao * 0.0343) / 2.0;
-
-
-  if (distancia < DISTANCIA_MINIMA) {
-
-    return 999.0;
-  }
-
-
-  return distancia;
+  return (duracao * 0.0343) / 2.0;
 }
 
 
-// ==========================================================
-// FILTRO DO ULTRASSÔNICO
-//
-// 5 leituras + mediana
-// ==========================================================
+// =====================================================
+// ENVIAR DISTÂNCIA
+// =====================================================
 
-float lerDistancia() {
+void enviarDistancia() {
 
-  float valores[5];
+  float distancia = lerDistancia();
 
 
-  for (int i = 0; i < 5; i++) {
+  if (distancia < 0) {
 
-    valores[i] =
-      lerDistanciaSimples();
-
-    delay(7);
-  }
-
-
-  for (int i = 0; i < 4; i++) {
-
-    for (int j = i + 1; j < 5; j++) {
-
-      if (valores[j] < valores[i]) {
-
-        float temp = valores[i];
-
-        valores[i] = valores[j];
-
-        valores[j] = temp;
-      }
-    }
-  }
-
-
-  return valores[2];
-}
-
-
-// ==========================================================
-// PRINT DISTÂNCIA
-// ==========================================================
-
-void mostrarDistancia(
-  const char* nome,
-  float distancia
-) {
-
-  Serial.print(nome);
-
-  Serial.print(": ");
-
-
-  if (distancia >= 900) {
-
-    Serial.println("LIVRE");
-
-  } else {
-
-    Serial.print(distancia, 1);
-
-    Serial.println(" cm");
-  }
-}
-
-
-// ==========================================================
-// MOVIMENTAR SERVO SUAVEMENTE
-// ==========================================================
-
-void moverServoSuave(
-  Servo &servo,
-  int destino
-) {
-
-  destino = constrain(destino, 0, 180);
-
-  int atual = servo.read();
-
-
-  if (atual < destino) {
-
-    for (
-      int angulo = atual;
-      angulo <= destino;
-      angulo++
-    ) {
-
-      servo.write(angulo);
-
-      delay(12);
-    }
-
-  } else {
-
-    for (
-      int angulo = atual;
-      angulo >= destino;
-      angulo--
-    ) {
-
-      servo.write(angulo);
-
-      delay(12);
-    }
-  }
-}
-
-
-// ==========================================================
-// ABRIR GARRA
-// ==========================================================
-
-void abrirGarra() {
-
-  Serial.println("Abrindo garra...");
-
-  moverServoSuave(
-    servoGarra,
-    GARRA_ABERTA
-  );
-}
-
-
-// ==========================================================
-// FECHAR GARRA
-// ==========================================================
-
-void fecharGarra() {
-
-  Serial.println("Fechando garra...");
-
-  moverServoSuave(
-    servoGarra,
-    GARRA_FECHADA
-  );
-}
-
-
-// ==========================================================
-// ABAIXAR GARRA
-// ==========================================================
-
-void abaixarGarra() {
-
-  Serial.println("Abaixando garra...");
-
-  moverServoSuave(
-    servoBase,
-    BASE_BAIXA
-  );
-}
-
-
-// ==========================================================
-// LEVANTAR GARRA
-// ==========================================================
-
-void levantarGarra() {
-
-  Serial.println("Levantando garra...");
-
-  moverServoSuave(
-    servoBase,
-    BASE_ALTA
-  );
-}
-
-
-// ==========================================================
-// TESTE GEOMÉTRICO PARA IDENTIFICAR VÍTIMA
-//
-// O robô olha:
-//
-//   ESQUERDA
-//      \
-//       X <- objeto
-//      /
-//   DIREITA
-//
-// Se centro está perto, mas os dois lados ficam muito mais
-// livres, provavelmente é um objeto estreito (boneco).
-//
-// Se centro, esquerda e direita continuam próximos,
-// provavelmente é parede/escombro.
-// ==========================================================
-
-bool pareceVitima(float centro) {
-
-  Serial.println();
-
-  Serial.println("==========================");
-
-  Serial.println("ANALISANDO OBJETO");
-
-  Serial.println("==========================");
-
-
-  mostrarDistancia(
-    "Centro",
-    centro
-  );
-
-
-  // ========================================================
-  // OLHAR PARA ESQUERDA
-  // ========================================================
-
-  girarEsquerdaPor(
-    TEMPO_SCAN
-  );
-
-
-  float esquerdaDist =
-    lerDistancia();
-
-
-  mostrarDistancia(
-    "Esquerda",
-    esquerdaDist
-  );
-
-
-  // ========================================================
-  // IR DA ESQUERDA ATÉ A DIREITA
-  // ========================================================
-
-  girarDireitaPor(
-    TEMPO_SCAN * 2
-  );
-
-
-  float direitaDist =
-    lerDistancia();
-
-
-  mostrarDistancia(
-    "Direita",
-    direitaDist
-  );
-
-
-  // ========================================================
-  // VOLTAR AO CENTRO
-  // ========================================================
-
-  girarEsquerdaPor(
-    TEMPO_SCAN
-  );
-
-
-  delay(100);
-
-
-  // ========================================================
-  // ANALISAR
-  // ========================================================
-
-  bool esquerdaLivre =
-    esquerdaDist >= DISTANCIA_LATERAL_LIVRE ||
-    esquerdaDist >= centro + DIFERENCA_OBJETO_ESTREITO;
-
-
-  bool direitaLivre =
-    direitaDist >= DISTANCIA_LATERAL_LIVRE ||
-    direitaDist >= centro + DIFERENCA_OBJETO_ESTREITO;
-
-
-  if (
-    esquerdaLivre &&
-    direitaLivre
-  ) {
-
-    Serial.println();
-
-    Serial.println(
-      "*** OBJETO ESTREITO DETECTADO ***"
-    );
-
-    Serial.println(
-      "Possivel vitima."
-    );
-
-    return true;
-  }
-
-
-  Serial.println();
-
-  Serial.println(
-    "Objeto largo."
-  );
-
-  Serial.println(
-    "Tratando como obstaculo."
-  );
-
-
-  return false;
-}
-
-
-// ==========================================================
-// GIRAR 90° DIREITA E MEMORIZAR
-// ==========================================================
-
-void virarDireita90() {
-
-  Serial.println(
-    "Virando 90 graus para direita."
-  );
-
-
-  girarDireitaPor(
-    TEMPO_GIRO_90
-  );
-
-
-  registrarMovimento('R');
-}
-
-
-// ==========================================================
-// PASSO DE EXPLORAÇÃO
-// ==========================================================
-
-void passoFrente() {
-
-  andarFrente(
-    TEMPO_PASSO_FRENTE
-  );
-
-
-  registrarMovimento('F');
-}
-
-
-// ==========================================================
-// PROCURAR CAMINHO
-// ==========================================================
-
-void procurar() {
-
-  float distancia =
-    lerDistancia();
-
-
-  Serial.print(
-    "[EXPLORANDO] "
-  );
-
-
-  mostrarDistancia(
-    "Frente",
-    distancia
-  );
-
-
-  // ========================================================
-  // CAMINHO LIVRE
-  // ========================================================
-
-  if (
-    distancia >= 900 ||
-    distancia > DISTANCIA_OBSTACULO
-  ) {
-
-    confirmacaoVitima = 0;
-
-    passoFrente();
+    SerialBT.println("DISTANCIA:-1");
 
     return;
   }
 
 
-  // ========================================================
-  // OBJETO PRÓXIMO
-  // ========================================================
+  SerialBT.print("DISTANCIA:");
 
-  parar();
-
-
-  Serial.println();
-
-  Serial.println(
-    "Objeto detectado na frente."
-  );
-
-
-  // ========================================================
-  // ANALISAR SE PODE SER VÍTIMA
-  // ========================================================
-
-  if (
-    distancia <=
-    DISTANCIA_ANALISE_VITIMA
-  ) {
-
-    bool candidato =
-      pareceVitima(distancia);
-
-
-    if (candidato) {
-
-      confirmacaoVitima++;
-
-
-      Serial.print(
-        "Confirmacao de vitima: "
-      );
-
-      Serial.print(
-        confirmacaoVitima
-      );
-
-      Serial.print("/");
-
-      Serial.println(
-        CONFIRMACOES_NECESSARIAS
-      );
-
-
-      if (
-        confirmacaoVitima >=
-        CONFIRMACOES_NECESSARIAS
-      ) {
-
-        estado = RESGATANDO;
-
-        return;
-      }
-
-
-      return;
-    }
-  }
-
-
-  // ========================================================
-  // É OBSTÁCULO
-  //
-  // SUMÔ INVERSO:
-  // vira sempre para direita
-  // ========================================================
-
-  confirmacaoVitima = 0;
-
-
-  Serial.println(
-    "OBSTACULO -> desviando para direita."
-  );
-
-
-  virarDireita90();
+  SerialBT.println(distancia, 1);
 }
 
 
-// ==========================================================
-// APROXIMAÇÃO FINAL DA VÍTIMA
-// ==========================================================
+// =====================================================
+// GARRA - MOVIMENTO RÁPIDO
+// =====================================================
 
-bool aproximarVitima() {
+void moverGarra(int angulo) {
 
-  tempoAproximacaoFinal = 0;
+  angulo = constrain(angulo, 0, 180);
 
-
-  Serial.println();
-
-  Serial.println(
-    "Aproximacao final..."
-  );
+  anguloGarra = angulo;
 
 
-  while (true) {
-
-    float distancia =
-      lerDistancia();
+  // Movimento DIRETO
+  servoGarra.write(anguloGarra);
 
 
-    mostrarDistancia(
-      "Vitima",
-      distancia
-    );
+  Serial.print("GARRA -> ");
+
+  Serial.print(anguloGarra);
+
+  Serial.println(" graus");
 
 
-    // Já está perto
-    if (
-      distancia != 999 &&
-      distancia <= DISTANCIA_CAPTURA
-    ) {
+  SerialBT.print("GARRA:");
 
-      parar();
-
-      return true;
-    }
-
-
-    // Perdeu a vítima
-    if (
-      distancia >= 900 ||
-      distancia > 35
-    ) {
-
-      parar();
-
-
-      Serial.println(
-        "Vitima perdida durante aproximacao."
-      );
-
-
-      return false;
-    }
-
-
-    andarFrente(
-      TEMPO_APROXIMACAO
-    );
-
-
-    tempoAproximacaoFinal +=
-      TEMPO_APROXIMACAO;
-
-
-    // Proteção
-    if (
-      tempoAproximacaoFinal > 1800
-    ) {
-
-      parar();
-
-      return false;
-    }
-  }
+  SerialBT.println(anguloGarra);
 }
 
 
-// ==========================================================
-// EXECUTAR RESGATE
-// ==========================================================
+// =====================================================
+// BASE - MOVIMENTO RÁPIDO
+// =====================================================
 
-void executarResgate() {
+void moverBase(int angulo) {
 
-  parar();
+  angulo = constrain(angulo, 0, 180);
 
-
-  Serial.println();
-
-  Serial.println(
-    "=================================="
-  );
-
-  Serial.println(
-    "       VITIMA ENCONTRADA"
-  );
-
-  Serial.println(
-    "=================================="
-  );
+  anguloBase = angulo;
 
 
-  // Abre antes de aproximar
-  abrirGarra();
+  servoBase.write(anguloBase);
 
 
-  // Abaixa
-  abaixarGarra();
+  Serial.print("BASE -> ");
+
+  Serial.print(anguloBase);
+
+  Serial.println(" graus");
 
 
-  delay(300);
+  SerialBT.print("BASE:");
 
-
-  // Aproxima
-  if (!aproximarVitima()) {
-
-    Serial.println(
-      "Abortando captura."
-    );
-
-
-    levantarGarra();
-
-    estado = PROCURANDO;
-
-    confirmacaoVitima = 0;
-
-    return;
-  }
-
-
-  // Pequeno avanço final
-  Serial.println(
-    "Avanco final da garra..."
-  );
-
-
-  andarFrente(
-    TEMPO_AVANCO_FINAL
-  );
-
-
-  delay(250);
-
-
-  // Fecha
-  fecharGarra();
-
-
-  delay(600);
-
-
-  // Levanta
-  levantarGarra();
-
-
-  delay(600);
-
-
-  Serial.println();
-
-  Serial.println(
-    "*** VITIMA CAPTURADA ***"
-  );
-
-
-  // ========================================================
-  // VOLTAR AO PONTO ANTES DA APROXIMAÇÃO
-  // ========================================================
-
-  Serial.println(
-    "Recuando da area de resgate..."
-  );
-
-
-  andarTras(
-    tempoAproximacaoFinal +
-    TEMPO_AVANCO_FINAL
-  );
-
-
-  estado = RETORNANDO;
+  SerialBT.println(anguloBase);
 }
 
 
-// ==========================================================
-// RETORNO POR BACKTRACKING
-//
-// Movimento original:
-// F -> volta usando TRÁS
-// R -> desfaz girando ESQUERDA
-// L -> desfaz girando DIREITA
-// ==========================================================
+// =====================================================
+// VERIFICAR NÚMERO
+// =====================================================
 
-void retornarAoInicio() {
+bool numeroValido(String texto) {
 
-  Serial.println();
+  if (texto.length() == 0) {
 
-  Serial.println(
-    "=================================="
-  );
+    return false;
+  }
 
-  Serial.println(
-    " BACKTRACKING PARA O PONTO A"
-  );
-
-  Serial.println(
-    "=================================="
-  );
-
-
-  Serial.print(
-    "Movimentos armazenados: "
-  );
-
-  Serial.println(
-    tamanhoCaminho
-  );
-
-
-  // ========================================================
-  // LER CAMINHO AO CONTRÁRIO
-  // ========================================================
 
   for (
-    int i = tamanhoCaminho - 1;
-    i >= 0;
-    i--
+    unsigned int i = 0;
+    i < texto.length();
+    i++
   ) {
 
-    char movimento =
-      caminho[i];
+    if (!isDigit(texto.charAt(i))) {
 
-
-    Serial.print(
-      "Retorno "
-    );
-
-    Serial.print(
-      tamanhoCaminho - i
-    );
-
-    Serial.print("/");
-
-    Serial.print(
-      tamanhoCaminho
-    );
-
-    Serial.print(
-      " -> "
-    );
-
-
-    // ======================================================
-    // DESFAZER AVANÇO
-    // ======================================================
-
-    if (movimento == 'F') {
-
-      Serial.println(
-        "RECUAR"
-      );
-
-
-      andarTras(
-        TEMPO_PASSO_FRENTE
-      );
-    }
-
-
-    // ======================================================
-    // DESFAZER GIRO DIREITA
-    // ======================================================
-
-    else if (
-      movimento == 'R'
-    ) {
-
-      Serial.println(
-        "GIRO ESQUERDA"
-      );
-
-
-      girarEsquerdaPor(
-        TEMPO_GIRO_90
-      );
-    }
-
-
-    // ======================================================
-    // DESFAZER GIRO ESQUERDA
-    // ======================================================
-
-    else if (
-      movimento == 'L'
-    ) {
-
-      Serial.println(
-        "GIRO DIREITA"
-      );
-
-
-      girarDireitaPor(
-        TEMPO_GIRO_90
-      );
+      return false;
     }
   }
 
 
-  parar();
-
-
-  Serial.println();
-
-  Serial.println(
-    "*** PONTO A ALCANCADO ***"
-  );
-
-
-  // ========================================================
-  // SOLTAR VÍTIMA
-  // ========================================================
-
-  Serial.println(
-    "Depositando vitima..."
-  );
-
-
-  abaixarGarra();
-
-
-  delay(500);
-
-
-  abrirGarra();
-
-
-  delay(700);
-
-
-  levantarGarra();
-
-
-  delay(500);
-
-
-  parar();
-
-
-  estado = FINALIZADO;
+  return true;
 }
 
 
-// ==========================================================
+// =====================================================
+// PROCESSAR COMANDO
+// =====================================================
+
+void processarComando(String comando) {
+
+  comando.trim();
+
+
+  if (comando.length() == 0) {
+
+    return;
+  }
+
+
+  Serial.print("Recebido: ");
+
+  Serial.println(comando);
+
+
+  char tipo =
+    toupper(comando.charAt(0));
+
+
+  // ---------------------
+  // Frente
+  // ---------------------
+
+  if (
+    tipo == 'F' &&
+    comando.length() == 1
+  ) {
+
+    frente();
+
+    return;
+  }
+
+
+  // ---------------------
+  // Trás
+  // ---------------------
+
+  if (
+    tipo == 'T' &&
+    comando.length() == 1
+  ) {
+
+    tras();
+
+    return;
+  }
+
+
+  // ---------------------
+  // Esquerda
+  // ---------------------
+
+  if (
+    tipo == 'E' &&
+    comando.length() == 1
+  ) {
+
+    esquerda();
+
+    return;
+  }
+
+
+  // ---------------------
+  // Direita
+  // ---------------------
+
+  if (
+    tipo == 'D' &&
+    comando.length() == 1
+  ) {
+
+    direita();
+
+    return;
+  }
+
+
+  // ---------------------
+  // Parar
+  // ---------------------
+
+  if (
+    (
+      tipo == 'P' ||
+      tipo == 'S'
+    ) &&
+    comando.length() == 1
+  ) {
+
+    parar();
+
+    return;
+  }
+
+
+  // ---------------------
+  // Ultrassônico
+  // ---------------------
+
+  if (
+    tipo == 'U' &&
+    comando.length() == 1
+  ) {
+
+    enviarDistancia();
+
+    return;
+  }
+
+
+  // ===================================================
+  // GARRA
+  //
+  // G0
+  // G45
+  // G90
+  // G140
+  // G180
+  // ===================================================
+
+  if (tipo == 'G') {
+
+    String numero =
+      comando.substring(1);
+
+
+    numero.trim();
+
+
+    if (numeroValido(numero)) {
+
+      int angulo =
+        numero.toInt();
+
+
+      moverGarra(angulo);
+    }
+
+
+    return;
+  }
+
+
+  // ===================================================
+  // BASE
+  //
+  // B0
+  // B45
+  // B90
+  // B140
+  // B180
+  // ===================================================
+
+  if (tipo == 'B') {
+
+    String numero =
+      comando.substring(1);
+
+
+    numero.trim();
+
+
+    if (numeroValido(numero)) {
+
+      int angulo =
+        numero.toInt();
+
+
+      moverBase(angulo);
+    }
+
+
+    return;
+  }
+}
+
+
+// =====================================================
+// RECEBER BLUETOOTH
+// =====================================================
+
+void receberBluetooth() {
+
+  while (SerialBT.available()) {
+
+    char caractere =
+      SerialBT.read();
+
+
+    ultimoCaractere =
+      millis();
+
+
+    // Final do comando
+    if (
+      caractere == '\n' ||
+      caractere == '\r' ||
+      caractere == ';' ||
+      caractere == '#'
+    ) {
+
+      if (
+        comandoRecebido.length() > 0
+      ) {
+
+        processarComando(
+          comandoRecebido
+        );
+
+
+        comandoRecebido = "";
+      }
+    }
+
+    else {
+
+      if (
+        comandoRecebido.length() < 20
+      ) {
+
+        comandoRecebido +=
+          caractere;
+
+      }
+
+      else {
+
+        comandoRecebido = "";
+      }
+    }
+  }
+
+
+  // ===================================================
+  // NÃO RECEBEU ENTER
+  // ===================================================
+
+  if (
+    comandoRecebido.length() > 0 &&
+    millis() - ultimoCaractere >
+    TEMPO_COMANDO
+  ) {
+
+    processarComando(
+      comandoRecebido
+    );
+
+
+    comandoRecebido = "";
+  }
+}
+
+
+// =====================================================
 // SETUP
-// ==========================================================
+// =====================================================
 
 void setup() {
 
-  Serial.begin(9600);
+  Serial.begin(115200);
 
 
-  // ========================================================
-  // PONTE H
-  // ========================================================
+  // ---------------------
+  // Motores
+  // ---------------------
 
   pinMode(IN1, OUTPUT);
-
   pinMode(IN2, OUTPUT);
-
   pinMode(IN3, OUTPUT);
-
   pinMode(IN4, OUTPUT);
 
 
   parar();
 
 
-  // ========================================================
-  // HC-SR04
-  // ========================================================
+  // ---------------------
+  // Ultrassônico
+  // ---------------------
 
   pinMode(TRIG, OUTPUT);
-
   pinMode(ECHO, INPUT);
 
 
-  digitalWrite(
-    TRIG,
-    LOW
-  );
+  digitalWrite(TRIG, LOW);
 
 
-  // ========================================================
-  // SERVOS
-  // ========================================================
+  // ---------------------
+  // Servos
+  // ---------------------
+
+  servoGarra.setPeriodHertz(50);
+
+  servoBase.setPeriodHertz(50);
+
 
   servoGarra.attach(
-    SERVO_GARRA_PIN
+    SERVO_GARRA_PIN,
+    500,
+    2400
   );
 
 
   servoBase.attach(
-    SERVO_BASE_PIN
+    SERVO_BASE_PIN,
+    500,
+    2400
   );
 
 
-  servoGarra.write(
-    GARRA_ABERTA
-  );
+  servoGarra.write(anguloGarra);
+
+  servoBase.write(anguloBase);
 
 
-  servoBase.write(
-    BASE_ALTA
-  );
+  // ---------------------
+  // Bluetooth
+  // ---------------------
 
-
-  delay(1000);
-
-
-  // ========================================================
-  // APRESENTAÇÃO
-  // ========================================================
-
-  Serial.println();
-
-  Serial.println(
-    "=================================="
-  );
-
-  Serial.println(
-    " ROBO AUTONOMO DE RESGATE"
-  );
-
-  Serial.println(
-    "=================================="
+  SerialBT.begin(
+    NOME_BLUETOOTH
   );
 
 
   Serial.println();
-
-  Serial.println(
-    "PINAGEM:"
-  );
-
-  Serial.println(
-    "Garra       = D2"
-  );
-
-  Serial.println(
-    "Base        = D3"
-  );
-
-  Serial.println(
-    "L298N IN1   = D4"
-  );
-
-  Serial.println(
-    "L298N IN2   = D5"
-  );
-
-  Serial.println(
-    "L298N IN3   = D6"
-  );
-
-  Serial.println(
-    "L298N IN4   = D7"
-  );
-
-  Serial.println(
-    "HC-SR04 ECHO = D8"
-  );
-
-  Serial.println(
-    "HC-SR04 TRIG = D9"
-  );
-
+  Serial.println("==========================");
+  Serial.println(" ROBO ESP32 - MODO RAPIDO");
+  Serial.println("==========================");
 
   Serial.println();
 
   Serial.println(
-    "Modo FULL AUTONOMO"
+    "Bluetooth: RoboResgateESP32"
   );
 
-  Serial.println(
-    "Iniciando em 3 segundos..."
-  );
+  Serial.println();
 
+  Serial.println("Garra GPIO 18");
+  Serial.println("Base  GPIO 19");
 
-  delay(3000);
+  Serial.println();
+
+  Serial.println("Pronto.");
 }
 
 
-// ==========================================================
+// =====================================================
 // LOOP
-// ==========================================================
+// =====================================================
 
 void loop() {
 
-  switch (estado) {
+  // Prioridade máxima ao Bluetooth
+  receberBluetooth();
 
 
-    // ======================================================
-    // PROCURANDO
-    // ======================================================
+  // Telemetria com prioridade menor
+  if (
+    millis() - ultimaTelemetria >=
+    INTERVALO_TELEMETRIA
+  ) {
 
-    case PROCURANDO:
-
-      procurar();
-
-      break;
-
-
-    // ======================================================
-    // RESGATANDO
-    // ======================================================
-
-    case RESGATANDO:
-
-      executarResgate();
-
-      break;
+    ultimaTelemetria =
+      millis();
 
 
-    // ======================================================
-    // RETORNANDO
-    // ======================================================
-
-    case RETORNANDO:
-
-      retornarAoInicio();
-
-      break;
-
-
-    // ======================================================
-    // FINAL
-    // ======================================================
-
-    case FINALIZADO:
-
-      parar();
-
-
-      Serial.println(
-        "MISSAO CONCLUIDA."
-      );
-
-
-      while (true) {
-
-        parar();
-
-        delay(1000);
-      }
-
-      break;
+    enviarDistancia();
   }
+
+
+  // Delay mínimo
+  delay(1);
 }
