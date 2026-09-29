@@ -1,67 +1,57 @@
-#include <Servo.h>
-
 // =====================================================
-// ROBÔ BLUETOOTH COM GARRA DE 2 SERVOS
-// Arduino UNO + HC-05
+// ROBÔ "SUMÔ INVERSO"
+// Arduino UNO + L298N + HC-SR04
 //
-// HC-05:
-// TX -> Arduino D0 (RX)
-// RX -> Arduino D1 (TX)
+// COMPORTAMENTO:
+//
+// 1. Anda para frente
+// 2. Encontrou obstáculo
+// 3. Para
+// 4. Gira para a DIREITA
+// 5. Continua girando até achar caminho livre
+// 6. Volta a andar para frente
+//
+// HC-SR04:
+// ECHO -> D8
+// TRIG -> D9
 //
 // L298N:
-// IN1 -> D2
-// IN2 -> D3
-// IN3 -> D4
-// IN4 -> D5
-//
-// BASE DA GARRA -> D10
-// GARRA          -> D11
+// IN1 -> D4
+// IN2 -> D5
+// IN3 -> D6
+// IN4 -> D7
 // =====================================================
 
 
 // =====================================================
-// PONTE H L298N
+// PINAGEM
 // =====================================================
 
-#define IN1 2
-#define IN2 3
-#define IN3 4
-#define IN4 5
+#define IN1 4
+#define IN2 5
+#define IN3 6
+#define IN4 7
 
-
-// =====================================================
-// SERVOS
-// =====================================================
-
-// Servo responsável por girar a base
-#define PINO_SERVO_BASE 10
-
-// Servo responsável por abrir/fechar a garra
-#define PINO_SERVO_GARRA 11
-
-Servo servoBase;
-Servo servoGarra;
+#define ECHO 8
+#define TRIG 9
 
 
 // =====================================================
-// POSIÇÕES INICIAIS
+// CONFIGURAÇÕES
 // =====================================================
 
-int anguloBase = 90;
-int anguloGarra = 90;
+// Distância para considerar obstáculo
+const float DISTANCIA_OBSTACULO = 20.0;
 
+// Para evitar que fique indeciso perto do limite,
+// só considera caminho realmente livre acima disso.
+const float DISTANCIA_LIVRE = 28.0;
 
-// =====================================================
-// RECEPÇÃO BLUETOOTH
-// =====================================================
+// Tempo de cada pequeno giro para direita
+const unsigned long TEMPO_PASSO_GIRO = 90;
 
-String comandoRecebido = "";
-
-unsigned long ultimoCaractere = 0;
-
-// Caso o aplicativo não envie \n,
-// processa o comando depois desse tempo.
-const unsigned long TEMPO_COMANDO = 80;
+// Pausa pequena entre leituras
+const unsigned long PAUSA = 40;
 
 
 // =====================================================
@@ -95,39 +85,7 @@ void frente() {
 
 
 // =====================================================
-// TRÁS
-// =====================================================
-
-void tras() {
-
-  // Motor esquerdo
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, HIGH);
-
-  // Motor direito
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, HIGH);
-}
-
-
-// =====================================================
-// ESQUERDA
-// =====================================================
-
-void esquerda() {
-
-  // Motor esquerdo para trás
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, HIGH);
-
-  // Motor direito para frente
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
-}
-
-
-// =====================================================
-// DIREITA
+// GIRAR PARA DIREITA
 // =====================================================
 
 void direita() {
@@ -143,213 +101,154 @@ void direita() {
 
 
 // =====================================================
-// CONTROLAR BASE DA GARRA
+// LEITURA SIMPLES DO HC-SR04
 // =====================================================
 
-void moverBase(int angulo) {
+float lerDistanciaSimples() {
 
-  angulo = constrain(angulo, 0, 180);
+  digitalWrite(TRIG, LOW);
 
-  anguloBase = angulo;
+  delayMicroseconds(2);
 
-  servoBase.write(anguloBase);
-}
+  digitalWrite(TRIG, HIGH);
 
+  delayMicroseconds(10);
 
-// =====================================================
-// CONTROLAR GARRA
-// =====================================================
-
-void moverGarra(int angulo) {
-
-  angulo = constrain(angulo, 0, 180);
-
-  anguloGarra = angulo;
-
-  servoGarra.write(anguloGarra);
-}
+  digitalWrite(TRIG, LOW);
 
 
-// =====================================================
-// VERIFICAR SE STRING É NÚMERO
-// =====================================================
+  unsigned long duracao =
+    pulseIn(ECHO, HIGH, 25000);
 
-bool numeroValido(String texto) {
 
-  if (texto.length() == 0) {
-    return false;
+  // Se não recebeu retorno,
+  // consideramos caminho muito distante/livre
+  if (duracao == 0) {
+
+    return 999;
   }
 
-  for (unsigned int i = 0; i < texto.length(); i++) {
 
-    if (!isDigit(texto.charAt(i))) {
-      return false;
+  float distancia =
+    (duracao * 0.0343) / 2.0;
+
+
+  return distancia;
+}
+
+
+// =====================================================
+// FILTRO DA DISTÂNCIA
+//
+// Faz 5 leituras e pega a mediana.
+// Ajuda a evitar leitura falsa.
+// =====================================================
+
+float lerDistancia() {
+
+  float valores[5];
+
+
+  for (int i = 0; i < 5; i++) {
+
+    valores[i] =
+      lerDistanciaSimples();
+
+    delay(5);
+  }
+
+
+  // Ordenação
+  for (int i = 0; i < 4; i++) {
+
+    for (int j = i + 1; j < 5; j++) {
+
+      if (valores[j] < valores[i]) {
+
+        float temp = valores[i];
+
+        valores[i] = valores[j];
+
+        valores[j] = temp;
+      }
     }
   }
 
-  return true;
+
+  // Mediana
+  return valores[2];
 }
 
 
 // =====================================================
-// PROCESSAR COMANDO
+// PROCURAR CAMINHO LIVRE PARA DIREITA
 // =====================================================
 
-void processarComando(String comando) {
+void procurarSaidaDireita() {
 
-  comando.trim();
-
-  if (comando.length() == 0) {
-    return;
-  }
-
-
-  // ===================================================
-  // CONVERTER PRIMEIRA LETRA PARA MAIÚSCULA
-  // ===================================================
-
-  char tipo = toupper(comando.charAt(0));
+  Serial.println();
+  Serial.println("==============================");
+  Serial.println("OBSTACULO DETECTADO");
+  Serial.println("Girando para DIREITA...");
+  Serial.println("==============================");
 
 
-  // ===================================================
-  // FRENTE
-  // Aplicativo envia:
-  //
-  // F
-  // ===================================================
+  parar();
 
-  if (tipo == 'F' && comando.length() == 1) {
-
-    frente();
-
-    return;
-  }
+  delay(150);
 
 
-  // ===================================================
-  // TRÁS
-  // Aplicativo envia:
-  //
-  // T
-  // ===================================================
+  while (true) {
 
-  if (tipo == 'T' && comando.length() == 1) {
-
-    tras();
-
-    return;
-  }
-
-
-  // ===================================================
-  // ESQUERDA
-  //
-  // E
-  // ===================================================
-
-  if (tipo == 'E' && comando.length() == 1) {
-
-    esquerda();
-
-    return;
-  }
-
-
-  // ===================================================
-  // DIREITA
-  //
-  // D
-  // ===================================================
-
-  if (tipo == 'D' && comando.length() == 1) {
-
+    // Pequeno giro para direita
     direita();
 
-    return;
-  }
-
-
-  // ===================================================
-  // PARAR
-  //
-  // P
-  //
-  // Também aceita S
-  // ===================================================
-
-  if (
-    (tipo == 'P' || tipo == 'S') &&
-    comando.length() == 1
-  ) {
+    delay(TEMPO_PASSO_GIRO);
 
     parar();
 
-    return;
-  }
+    delay(80);
 
 
-  // ===================================================
-  // GARRA
-  //
-  // G0
-  // G45
-  // G90
-  // G135
-  // G180
-  //
-  // Compatível com o aplicativo atual.
-  // ===================================================
+    // Mede novamente
+    float distancia =
+      lerDistancia();
 
-  if (tipo == 'G') {
 
-    String numero = comando.substring(1);
+    Serial.print("Procurando saida | Distancia: ");
 
-    numero.trim();
 
-    if (numeroValido(numero)) {
+    if (distancia == 999) {
 
-      int angulo = numero.toInt();
+      Serial.println("LIVRE");
 
-      if (angulo >= 0 && angulo <= 180) {
-
-        moverGarra(angulo);
-      }
+      break;
     }
 
-    return;
-  }
+
+    Serial.print(distancia, 1);
+
+    Serial.println(" cm");
 
 
-  // ===================================================
-  // BASE DA GARRA
-  //
-  // B0
-  // B45
-  // B90
-  // B135
-  // B180
-  //
-  // NOVO COMANDO
-  // ===================================================
+    // Encontrou caminho livre
+    if (distancia >= DISTANCIA_LIVRE) {
 
-  if (tipo == 'B') {
+      Serial.println();
+      Serial.println("*** CAMINHO LIVRE ENCONTRADO ***");
 
-    String numero = comando.substring(1);
-
-    numero.trim();
-
-    if (numeroValido(numero)) {
-
-      int angulo = numero.toInt();
-
-      if (angulo >= 0 && angulo <= 180) {
-
-        moverBase(angulo);
-      }
+      break;
     }
-
-    return;
   }
+
+
+  parar();
+
+  delay(150);
+
+
+  Serial.println("Voltando a andar para frente.");
+  Serial.println();
 }
 
 
@@ -358,17 +257,6 @@ void processarComando(String comando) {
 // =====================================================
 
 void setup() {
-
-  // ===================================================
-  // BLUETOOTH HC-05
-  // ===================================================
-
-  // Arduino UNO:
-  //
-  // D0 = RX
-  // D1 = TX
-  //
-  // HC-05 normalmente trabalha em 9600 baud.
 
   Serial.begin(9600);
 
@@ -383,30 +271,34 @@ void setup() {
   pinMode(IN4, OUTPUT);
 
 
-  // Robô inicia parado
   parar();
 
 
   // ===================================================
-  // SERVO DA BASE
+  // ULTRASSÔNICO
   // ===================================================
 
-  servoBase.attach(PINO_SERVO_BASE);
+  pinMode(TRIG, OUTPUT);
 
-  servoBase.write(anguloBase);
+  pinMode(ECHO, INPUT);
 
-
-  // ===================================================
-  // SERVO DA GARRA
-  // ===================================================
-
-  servoGarra.attach(PINO_SERVO_GARRA);
-
-  servoGarra.write(anguloGarra);
+  digitalWrite(TRIG, LOW);
 
 
-  // Aguarda servos alcançarem posição inicial
-  delay(700);
+  Serial.println();
+  Serial.println("==============================");
+  Serial.println(" ROBO SUMO INVERSO");
+  Serial.println("==============================");
+
+  Serial.println("ECHO = D8");
+  Serial.println("TRIG = D9");
+
+  Serial.println();
+  Serial.println("Iniciando...");
+  Serial.println();
+
+
+  delay(1000);
 }
 
 
@@ -416,63 +308,55 @@ void setup() {
 
 void loop() {
 
-  // ===================================================
-  // RECEBER DADOS DO HC-05
-  // ===================================================
-
-  while (Serial.available() > 0) {
-
-    char caractere = Serial.read();
-
-    ultimoCaractere = millis();
+  float distancia =
+    lerDistancia();
 
 
-    // =================================================
-    // FINAL DO COMANDO
-    // =================================================
+  Serial.print("Distancia: ");
 
-    if (
-      caractere == '\n' ||
-      caractere == '\r' ||
-      caractere == ';' ||
-      caractere == '#'
-    ) {
 
-      if (comandoRecebido.length() > 0) {
+  if (distancia == 999) {
 
-        processarComando(comandoRecebido);
+    Serial.println("sem obstaculo");
 
-        comandoRecebido = "";
-      }
-    }
+  } else {
 
-    else {
+    Serial.print(distancia, 1);
 
-      // Proteção para evitar uma String gigante
-      if (comandoRecebido.length() < 20) {
-
-        comandoRecebido += caractere;
-      }
-
-      else {
-
-        comandoRecebido = "";
-      }
-    }
+    Serial.println(" cm");
   }
 
 
   // ===================================================
-  // PROCESSAR CASO NÃO RECEBA ENTER
+  // OBSTÁCULO
   // ===================================================
 
   if (
-    comandoRecebido.length() > 0 &&
-    millis() - ultimoCaractere > TEMPO_COMANDO
+    distancia != 999 &&
+    distancia <= DISTANCIA_OBSTACULO
   ) {
 
-    processarComando(comandoRecebido);
+    parar();
 
-    comandoRecebido = "";
+
+    Serial.println(
+      "OBSTACULO NA FRENTE!"
+    );
+
+
+    procurarSaidaDireita();
   }
+
+
+  // ===================================================
+  // CAMINHO LIVRE
+  // ===================================================
+
+  else {
+
+    frente();
+  }
+
+
+  delay(PAUSA);
 }
