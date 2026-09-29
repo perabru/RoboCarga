@@ -1,9 +1,21 @@
 #include <Servo.h>
 
 // =====================================================
-// ROBÔ BLUETOOTH
-// Arduino UNO + HC-05 nos pinos 0 e 1
-// L298N + Servo da Garra
+// ROBÔ BLUETOOTH COM GARRA DE 2 SERVOS
+// Arduino UNO + HC-05
+//
+// HC-05:
+// TX -> Arduino D0 (RX)
+// RX -> Arduino D1 (TX)
+//
+// L298N:
+// IN1 -> D2
+// IN2 -> D3
+// IN3 -> D4
+// IN4 -> D5
+//
+// BASE DA GARRA -> D10
+// GARRA          -> D11
 // =====================================================
 
 
@@ -18,22 +30,37 @@
 
 
 // =====================================================
-// SERVO
+// SERVOS
 // =====================================================
 
-#define PINO_SERVO 11
+// Servo responsável por girar a base
+#define PINO_SERVO_BASE 10
 
-Servo garra;
+// Servo responsável por abrir/fechar a garra
+#define PINO_SERVO_GARRA 11
+
+Servo servoBase;
+Servo servoGarra;
 
 
 // =====================================================
-// VARIÁVEIS
+// POSIÇÕES INICIAIS
 // =====================================================
 
-String buffer = "";
+int anguloBase = 90;
+int anguloGarra = 90;
+
+
+// =====================================================
+// RECEPÇÃO BLUETOOTH
+// =====================================================
+
+String comandoRecebido = "";
 
 unsigned long ultimoCaractere = 0;
 
+// Caso o aplicativo não envie \n,
+// processa o comando depois desse tempo.
 const unsigned long TEMPO_COMANDO = 80;
 
 
@@ -116,6 +143,20 @@ void direita() {
 
 
 // =====================================================
+// CONTROLAR BASE DA GARRA
+// =====================================================
+
+void moverBase(int angulo) {
+
+  angulo = constrain(angulo, 0, 180);
+
+  anguloBase = angulo;
+
+  servoBase.write(anguloBase);
+}
+
+
+// =====================================================
 // CONTROLAR GARRA
 // =====================================================
 
@@ -123,60 +164,192 @@ void moverGarra(int angulo) {
 
   angulo = constrain(angulo, 0, 180);
 
-  garra.write(angulo);
+  anguloGarra = angulo;
+
+  servoGarra.write(anguloGarra);
 }
 
 
 // =====================================================
-// PROCESSAR VALOR DA GARRA
+// VERIFICAR SE STRING É NÚMERO
 // =====================================================
 
-void processarBuffer() {
+bool numeroValido(String texto) {
 
-  if (buffer.length() == 0) {
+  if (texto.length() == 0) {
+    return false;
+  }
+
+  for (unsigned int i = 0; i < texto.length(); i++) {
+
+    if (!isDigit(texto.charAt(i))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+// =====================================================
+// PROCESSAR COMANDO
+// =====================================================
+
+void processarComando(String comando) {
+
+  comando.trim();
+
+  if (comando.length() == 0) {
     return;
   }
 
-  // Permite enviar:
-  //
-  // 90
-  //
-  // ou:
-  //
-  // G90
 
-  if (buffer.charAt(0) == 'G' ||
-      buffer.charAt(0) == 'g') {
+  // ===================================================
+  // CONVERTER PRIMEIRA LETRA PARA MAIÚSCULA
+  // ===================================================
 
-    buffer.remove(0, 1);
+  char tipo = toupper(comando.charAt(0));
+
+
+  // ===================================================
+  // FRENTE
+  // Aplicativo envia:
+  //
+  // F
+  // ===================================================
+
+  if (tipo == 'F' && comando.length() == 1) {
+
+    frente();
+
+    return;
   }
 
 
-  if (buffer.length() > 0) {
+  // ===================================================
+  // TRÁS
+  // Aplicativo envia:
+  //
+  // T
+  // ===================================================
 
-    bool numeroValido = true;
+  if (tipo == 'T' && comando.length() == 1) {
 
-    for (unsigned int i = 0; i < buffer.length(); i++) {
+    tras();
 
-      if (!isDigit(buffer.charAt(i))) {
-
-        numeroValido = false;
-      }
-    }
+    return;
+  }
 
 
-    if (numeroValido) {
+  // ===================================================
+  // ESQUERDA
+  //
+  // E
+  // ===================================================
 
-      int angulo = buffer.toInt();
+  if (tipo == 'E' && comando.length() == 1) {
+
+    esquerda();
+
+    return;
+  }
+
+
+  // ===================================================
+  // DIREITA
+  //
+  // D
+  // ===================================================
+
+  if (tipo == 'D' && comando.length() == 1) {
+
+    direita();
+
+    return;
+  }
+
+
+  // ===================================================
+  // PARAR
+  //
+  // P
+  //
+  // Também aceita S
+  // ===================================================
+
+  if (
+    (tipo == 'P' || tipo == 'S') &&
+    comando.length() == 1
+  ) {
+
+    parar();
+
+    return;
+  }
+
+
+  // ===================================================
+  // GARRA
+  //
+  // G0
+  // G45
+  // G90
+  // G135
+  // G180
+  //
+  // Compatível com o aplicativo atual.
+  // ===================================================
+
+  if (tipo == 'G') {
+
+    String numero = comando.substring(1);
+
+    numero.trim();
+
+    if (numeroValido(numero)) {
+
+      int angulo = numero.toInt();
 
       if (angulo >= 0 && angulo <= 180) {
 
         moverGarra(angulo);
       }
     }
+
+    return;
   }
 
-  buffer = "";
+
+  // ===================================================
+  // BASE DA GARRA
+  //
+  // B0
+  // B45
+  // B90
+  // B135
+  // B180
+  //
+  // NOVO COMANDO
+  // ===================================================
+
+  if (tipo == 'B') {
+
+    String numero = comando.substring(1);
+
+    numero.trim();
+
+    if (numeroValido(numero)) {
+
+      int angulo = numero.toInt();
+
+      if (angulo >= 0 && angulo <= 180) {
+
+        moverBase(angulo);
+      }
+    }
+
+    return;
+  }
 }
 
 
@@ -187,11 +360,15 @@ void processarBuffer() {
 void setup() {
 
   // ===================================================
-  // HC-05 NOS PINOS 0 E 1
+  // BLUETOOTH HC-05
   // ===================================================
 
+  // Arduino UNO:
+  //
   // D0 = RX
   // D1 = TX
+  //
+  // HC-05 normalmente trabalha em 9600 baud.
 
   Serial.begin(9600);
 
@@ -206,20 +383,30 @@ void setup() {
   pinMode(IN4, OUTPUT);
 
 
-  // Robô começa parado
+  // Robô inicia parado
   parar();
 
 
   // ===================================================
-  // SERVO
+  // SERVO DA BASE
   // ===================================================
 
-  garra.attach(PINO_SERVO);
+  servoBase.attach(PINO_SERVO_BASE);
 
-  // Posição inicial da garra
-  garra.write(90);
+  servoBase.write(anguloBase);
 
-  delay(500);
+
+  // ===================================================
+  // SERVO DA GARRA
+  // ===================================================
+
+  servoGarra.attach(PINO_SERVO_GARRA);
+
+  servoGarra.write(anguloGarra);
+
+
+  // Aguarda servos alcançarem posição inicial
+  delay(700);
 }
 
 
@@ -229,111 +416,63 @@ void setup() {
 
 void loop() {
 
-
   // ===================================================
-  // RECEBER BLUETOOTH
+  // RECEBER DADOS DO HC-05
   // ===================================================
 
   while (Serial.available() > 0) {
 
-    char comando = Serial.read();
+    char caractere = Serial.read();
 
     ultimoCaractere = millis();
 
 
     // =================================================
-    // MOVIMENTAÇÃO
+    // FINAL DO COMANDO
     // =================================================
 
-    if (comando == 'F' || comando == 'f') {
-
-      frente();
-
-      buffer = "";
-    }
-
-
-    else if (
-      comando == 'T' ||
-      comando == 't' ||
-      comando == 'B' ||
-      comando == 'b'
+    if (
+      caractere == '\n' ||
+      caractere == '\r' ||
+      caractere == ';' ||
+      caractere == '#'
     ) {
 
-      tras();
+      if (comandoRecebido.length() > 0) {
 
-      buffer = "";
+        processarComando(comandoRecebido);
+
+        comandoRecebido = "";
+      }
     }
 
+    else {
 
-    else if (comando == 'E' || comando == 'e') {
+      // Proteção para evitar uma String gigante
+      if (comandoRecebido.length() < 20) {
 
-      esquerda();
+        comandoRecebido += caractere;
+      }
 
-      buffer = "";
-    }
+      else {
 
-
-    else if (comando == 'D' || comando == 'd') {
-
-      direita();
-
-      buffer = "";
-    }
-
-
-    else if (
-      comando == 'P' ||
-      comando == 'p' ||
-      comando == 'S' ||
-      comando == 's'
-    ) {
-
-      parar();
-
-      buffer = "";
-    }
-
-
-    // =================================================
-    // VALOR DA GARRA
-    // =================================================
-
-    else if (
-      isDigit(comando) ||
-      comando == 'G' ||
-      comando == 'g'
-    ) {
-
-      buffer += comando;
-    }
-
-
-    // =================================================
-    // ENTER OU FINAL DO COMANDO
-    // =================================================
-
-    else if (
-      comando == '\n' ||
-      comando == '\r' ||
-      comando == ';' ||
-      comando == '#'
-    ) {
-
-      processarBuffer();
+        comandoRecebido = "";
+      }
     }
   }
 
 
   // ===================================================
-  // PROCESSAR NÚMERO SEM PRECISAR DE ENTER
+  // PROCESSAR CASO NÃO RECEBA ENTER
   // ===================================================
 
   if (
-    buffer.length() > 0 &&
+    comandoRecebido.length() > 0 &&
     millis() - ultimoCaractere > TEMPO_COMANDO
   ) {
 
-    processarBuffer();
+    processarComando(comandoRecebido);
+
+    comandoRecebido = "";
   }
 }
