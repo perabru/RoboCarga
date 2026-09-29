@@ -1,315 +1,377 @@
-# Carrinho Bluetooth com Arduino Uno, HC-05, L298N e Servo
+# 🤖 Robô Sumô Inverso com Arduino UNO
 
-## Descrição
+Projeto de um robô autônomo utilizando **Arduino UNO**, **ponte H L298N** e **sensor ultrassônico HC-SR04**.
 
-Este projeto utiliza um **Arduino Uno** para controlar um carrinho via Bluetooth.
+A lógica do robô funciona como um **“sumô inverso”**: em vez de procurar e atacar um obstáculo, ele tenta **evitar obstáculos automaticamente**.
 
-O sistema possui:
-
-- 2 motores DC
-- Ponte H L298N
-- Módulo Bluetooth HC-05
-- Servo motor para controle de uma garra
-- Arduino Uno
-
-O celular envia comandos Bluetooth para o módulo HC-05. O Arduino recebe esses comandos pelos pinos seriais `0` e `1` e controla os motores e o servo.
+O robô anda continuamente para frente. Quando detecta algum objeto próximo, ele para e começa a girar para a direita até encontrar novamente um caminho livre. Assim que encontra espaço suficiente, volta a andar para frente.
 
 ---
 
-## Componentes utilizados
+## 🎯 Objetivo do projeto
 
-- Arduino Uno
-- HC-05
-- L298N
-- 2 motores DC
-- 1 servo motor
-- Bateria para os motores
-- Fonte adequada para o servo, se necessário
+O robô deve funcionar de maneira totalmente autônoma, sem Bluetooth, controle remoto ou intervenção do usuário.
+
+O comportamento esperado é:
+
+```text
+LIGA
+  ↓
+ANDA PARA FRENTE
+  ↓
+MEDE A DISTÂNCIA
+  ↓
+TEM OBSTÁCULO?
+  ↓
+NÃO ───────────────→ CONTINUA PARA FRENTE
+  ↓
+SIM
+  ↓
+PARA
+  ↓
+GIRA PARA DIREITA
+  ↓
+MEDE NOVAMENTE
+  ↓
+AINDA TEM OBSTÁCULO?
+  ↓
+SIM → CONTINUA GIRANDO
+  ↓
+NÃO
+  ↓
+VOLTA A ANDAR PARA FRENTE
+```
+
+---
+
+# 🧰 Componentes utilizados
+
+- 1 Arduino UNO
+- 1 Ponte H L298N
+- 1 Sensor ultrassônico HC-SR04
+- 2 Motores DC
+- 2 Rodas
+- Bateria ou fonte adequada para os motores
 - Jumpers
-- Resistores para divisor de tensão no RX do HC-05
+- Chassi do robô
 
 ---
 
-## Pinagem
+# 📌 Mapa completo de pinos
 
-### Ponte H L298N
+## Arduino UNO
 
-| L298N | Arduino Uno |
-|---|---|
-| IN1 | D2 |
-| IN2 | D3 |
-| IN3 | D4 |
-| IN4 | D5 |
-| GND | GND |
-
-Ligação dos motores:
-
-```text
-Motor esquerdo -> OUT1 e OUT2
-Motor direito  -> OUT3 e OUT4
-```
-
-Se os jumpers `ENA` e `ENB` estiverem instalados na L298N, os motores ficarão habilitados em velocidade máxima.
+| Componente | Pino |
+|---|---:|
+| L298N IN1 | D4 |
+| L298N IN2 | D5 |
+| L298N IN3 | D6 |
+| L298N IN4 | D7 |
+| HC-SR04 ECHO | D8 |
+| HC-SR04 TRIG | D9 |
 
 ---
 
-## Bluetooth HC-05
+# 🔊 Ligação do HC-SR04
 
-| HC-05 | Arduino Uno |
+| HC-SR04 | Arduino UNO |
 |---|---|
-| TXD | D0 / RX |
-| RXD | D1 / TX |
-| GND | GND |
 | VCC | 5V |
+| GND | GND |
+| TRIG | D9 |
+| ECHO | D8 |
 
-A comunicação é feita em:
+Representação:
 
 ```text
-9600 baud
+HC-SR04             Arduino UNO
+
+VCC   -------------- 5V
+GND   -------------- GND
+TRIG  -------------- D9
+ECHO  -------------- D8
 ```
+
+---
+
+# ⚙️ Ligação da ponte H L298N
+
+## Entradas de controle
+
+```text
+L298N                 Arduino UNO
+
+IN1 -----------------> D4
+IN2 -----------------> D5
+IN3 -----------------> D6
+IN4 -----------------> D7
+```
+
+---
+
+## Motores
+
+O primeiro motor deve ser conectado em:
+
+```text
+OUT1
+OUT2
+```
+
+O segundo motor deve ser conectado em:
+
+```text
+OUT3
+OUT4
+```
+
+Exemplo:
+
+```text
+Motor esquerdo
+      |
+      +---- OUT1
+      |
+      +---- OUT2
+
+
+Motor direito
+      |
+      +---- OUT3
+      |
+      +---- OUT4
+```
+
+---
+
+# ⚠️ MUITO IMPORTANTE — GND COMUM
+
+O **GND da ponte H L298N obrigatoriamente deve estar conectado ao GND do Arduino UNO**.
+
+Essa conexão é extremamente importante.
+
+Faça:
+
+```text
+Arduino GND
+     |
+     |
+     +-------------------- GND L298N
+```
+
+Ou seja:
+
+```text
+GND Arduino -------- GND Ponte H
+```
+
+Mesmo que o Arduino e a ponte H estejam sendo alimentados por fontes diferentes, eles precisam compartilhar o mesmo **GND de referência**.
+
+Sem essa ligação, os sinais enviados pelos pinos:
+
+```text
+D4
+D5
+D6
+D7
+```
+
+podem não ser interpretados corretamente pela L298N.
+
+O resultado pode ser:
+
+- motores não girarem;
+- motores girarem aleatoriamente;
+- somente um motor funcionar;
+- comportamento instável;
+- ponte H aparentemente não responder.
+
+Portanto:
+
+> **SEMPRE CONECTE O GND DA L298N AO GND DO ARDUINO.**
+
+---
+
+# 🔋 Alimentação da ponte H
+
+Os motores **não devem ser alimentados diretamente pelo pino 5V do Arduino**.
+
+A bateria dos motores deve ser conectada diretamente na L298N.
+
+Exemplo:
+
+```text
+BATERIA +
+    |
+    +---------- VIN / +12V L298N
+
+
+BATERIA -
+    |
+    +---------- GND L298N
+                     |
+                     |
+                     +---------- GND Arduino
+```
+
+Portanto:
+
+```text
+Bateria +  -------- +12V/VIN L298N
+
+Bateria -  -------- GND L298N
+
+Arduino GND -------- GND L298N
+```
+
+---
+
+# 🔗 Esquema completo
+
+```text
+                  ARDUINO UNO
+                 ┌────────────┐
+                 │            │
+             D4  ├────────────┼──── IN1 L298N
+             D5  ├────────────┼──── IN2 L298N
+             D6  ├────────────┼──── IN3 L298N
+             D7  ├────────────┼──── IN4 L298N
+                 │            │
+             D8  ├────────────┼──── ECHO HC-SR04
+             D9  ├────────────┼──── TRIG HC-SR04
+                 │            │
+             5V  ├────────────┼──── VCC HC-SR04
+                 │            │
+            GND  ├───────┬────┼──── GND HC-SR04
+                 │       │    │
+                 └───────┼────┘
+                         │
+                         │
+                         ↓
+                     GND L298N
+```
+
+A ligação do GND comum é:
+
+```text
+GND Arduino
+    |
+    +---------------- GND HC-SR04
+    |
+    +---------------- GND L298N
+    |
+    +---------------- Negativo da bateria
+```
+
+---
+
+# ⚡ ENA e ENB da L298N
+
+Normalmente a placa L298N possui:
+
+```text
+ENA
+IN1
+IN2
+IN3
+IN4
+ENB
+```
+
+Se você **não estiver controlando velocidade por PWM**, mantenha os jumpers:
+
+```text
+ENA
+ENB
+```
+
+colocados na placa.
+
+Representação:
+
+```text
+ENA -> JUMPER INSTALADO
+
+ENB -> JUMPER INSTALADO
+```
+
+Se os jumpers forem retirados e ENA/ENB não estiverem conectados a nenhum sinal, os motores podem não funcionar.
+
+---
+
+# 🧠 Funcionamento do algoritmo
+
+O robô trabalha com dois limites principais.
+
+## Distância de obstáculo
+
+```cpp
+const float DISTANCIA_OBSTACULO = 20.0;
+```
+
+Isso significa que qualquer objeto detectado a **20 cm ou menos** será considerado um obstáculo.
+
+Exemplo:
+
+```text
+50 cm → livre
+
+35 cm → livre
+
+25 cm → livre
+
+20 cm → obstáculo
+
+15 cm → obstáculo
+
+10 cm → obstáculo
+```
+
+---
+
+# 🛣️ Distância considerada livre
 
 No código:
 
 ```cpp
-Serial.begin(9600);
+const float DISTANCIA_LIVRE = 28.0;
 ```
 
----
-
-## Atenção aos pinos 0 e 1
-
-Os pinos:
+Depois que começa a girar, o robô somente considera que encontrou uma nova direção segura quando o ultrassônico medir pelo menos:
 
 ```text
-D0 = RX
-D1 = TX
+28 cm
 ```
 
-também são utilizados pelo Arduino Uno durante o envio do programa pelo USB.
-
-Se ocorrer erro durante o upload:
-
-1. Desconecte o HC-05 dos pinos `0` e `1`.
-2. Faça o upload do código.
-3. Aguarde terminar.
-4. Reconecte o HC-05.
-
----
-
-## Atenção ao RX do HC-05
-
-A saída TX do Arduino trabalha com aproximadamente `5 V`.
-
-A entrada RX do HC-05 trabalha com nível lógico menor.
-
-Por isso, recomenda-se usar um divisor resistivo entre:
+Isso evita um problema comum:
 
 ```text
-Arduino D1 / TX
-      |
-   divisor
-      |
-HC-05 RX
+obstáculo = 20 cm
+vira um pouco
+mede 21 cm
+anda
+detecta novamente
+vira
+anda
+vira
+anda
 ```
 
-O TX do HC-05 pode ser conectado diretamente ao pino `D0 / RX` do Arduino.
-
----
-
-## Servo da garra
-
-| Servo | Arduino Uno |
-|---|---|
-| Sinal | D11 |
-| VCC | 5V ou fonte externa |
-| GND | GND |
-
-O servo é controlado pelo pino:
-
-```cpp
-#define PINO_SERVO 11
-```
-
-É utilizada a biblioteca:
-
-```cpp
-#include <Servo.h>
-```
-
-O servo é inicializado com:
-
-```cpp
-Servo garra;
-```
-
-e depois:
-
-```cpp
-garra.attach(PINO_SERVO);
-```
-
-A posição inicial é:
-
-```cpp
-garra.write(90);
-```
-
----
-
-## Alimentação do servo
-
-Se estiver utilizando um servo de maior corrente, como:
+Utilizando dois limites diferentes:
 
 ```text
-MG995
-MG996R
+20 cm → começa a desviar
+
+28 cm → considera realmente livre
 ```
 
-é recomendado utilizar uma fonte externa de `5 V` a `6 V`.
-
-Evite alimentar servos de alta corrente diretamente pelo pino `5V` do Arduino.
+o comportamento fica muito mais estável.
 
 ---
 
-## GND comum
+# ↪️ Movimento para direita
 
-Todos os módulos precisam compartilhar o mesmo GND.
-
-Exemplo:
-
-```text
-Arduino GND
-   |
-   +---- L298N GND
-   |
-   +---- HC-05 GND
-   |
-   +---- Servo GND
-   |
-   +---- Fonte/Bateria GND
-```
-
-Isso é muito importante para o funcionamento correto do sistema.
-
----
-
-# Comandos Bluetooth
-
-O Arduino recebe comandos simples pelo HC-05.
-
-## Movimento
-
-| Comando | Ação |
-|---|---|
-| F | Frente |
-| T | Trás |
-| B | Trás |
-| E | Esquerda |
-| D | Direita |
-| P | Parar |
-| S | Parar |
-
-Exemplo:
-
-```text
-F
-```
-
-faz o carrinho andar para frente.
-
-Para parar:
-
-```text
-P
-```
-
----
-
-# Controle da garra
-
-A garra utiliza valores entre:
-
-```text
-0° e 180°
-```
-
-Os comandos podem ser enviados assim:
-
-```text
-G0
-G45
-G90
-G120
-G180
-```
-
-Exemplo:
-
-```text
-G90
-```
-
-posiciona o servo em aproximadamente `90°`.
-
-Também é possível enviar apenas o valor numérico:
-
-```text
-0
-45
-90
-135
-180
-```
-
----
-
-# Funcionamento dos motores
-
-## Frente
-
-```cpp
-digitalWrite(IN1, HIGH);
-digitalWrite(IN2, LOW);
-
-digitalWrite(IN3, HIGH);
-digitalWrite(IN4, LOW);
-```
-
-Os dois motores giram no sentido configurado como frente.
-
----
-
-## Trás
-
-```cpp
-digitalWrite(IN1, LOW);
-digitalWrite(IN2, HIGH);
-
-digitalWrite(IN3, LOW);
-digitalWrite(IN4, HIGH);
-```
-
-Os motores giram no sentido contrário.
-
----
-
-## Esquerda
-
-```cpp
-digitalWrite(IN1, LOW);
-digitalWrite(IN2, HIGH);
-
-digitalWrite(IN3, HIGH);
-digitalWrite(IN4, LOW);
-```
-
-O motor esquerdo gira para trás e o direito gira para frente.
-
-Com isso, o carrinho gira para a esquerda.
-
----
-
-## Direita
+Quando encontra um obstáculo, o robô faz:
 
 ```cpp
 digitalWrite(IN1, HIGH);
@@ -319,102 +381,136 @@ digitalWrite(IN3, LOW);
 digitalWrite(IN4, HIGH);
 ```
 
-O motor esquerdo gira para frente e o direito para trás.
+Isso faz:
+
+```text
+Motor esquerdo → frente
+
+Motor direito → trás
+```
+
+fazendo o robô girar no próprio eixo para a direita.
 
 ---
 
-## Parar
+# 🔄 Busca pelo caminho livre
+
+O robô gira pequenos intervalos:
 
 ```cpp
-digitalWrite(IN1, LOW);
-digitalWrite(IN2, LOW);
-
-digitalWrite(IN3, LOW);
-digitalWrite(IN4, LOW);
+const unsigned long TEMPO_PASSO_GIRO = 90;
 ```
 
-Os dois motores são desligados.
+Ou seja:
+
+```text
+gira um pouco
+      ↓
+para
+      ↓
+mede
+      ↓
+continua bloqueado?
+      ↓
+gira novamente
+```
+
+Assim ele não executa simplesmente um giro fixo de 90 graus.
+
+Ele realmente usa o sensor para descobrir quando o caminho está livre.
 
 ---
 
-# Funcionamento do servo
+# 📡 Filtro do sensor ultrassônico
 
-A posição do servo é alterada com:
+O código não utiliza somente uma leitura do HC-SR04.
 
-```cpp
-garra.write(angulo);
+Ele realiza:
+
+```text
+5 leituras
 ```
+
+Depois organiza os valores e utiliza a:
+
+```text
+MEDIANA
+```
+
+Isso ajuda a eliminar leituras incorretas.
 
 Exemplo:
 
-```cpp
-garra.write(0);
+```text
+Leituras:
+
+19.8 cm
+20.1 cm
+98.0 cm
+20.0 cm
+19.9 cm
 ```
 
-posição inicial.
+A leitura de:
 
-```cpp
-garra.write(90);
+```text
+98.0 cm
 ```
 
-posição central.
+provavelmente é um erro.
 
-```cpp
-garra.write(180);
+Ao utilizar a mediana, o resultado fica próximo de:
+
+```text
+20.0 cm
 ```
 
-posição final.
-
-O código limita o valor recebido usando:
-
-```cpp
-angulo = constrain(angulo, 0, 180);
-```
-
-Assim, o servo nunca recebe um valor menor que `0` ou maior que `180`.
+tornando a navegação mais confiável.
 
 ---
 
-# Código completo
+# 💻 Código completo
 
 ```cpp
-#include <Servo.h>
-
 // =====================================================
-// ROBÔ BLUETOOTH
-// Arduino UNO + HC-05 nos pinos 0 e 1
-// L298N + Servo da Garra
-// =====================================================
-
-
-// =====================================================
-// PONTE H L298N
-// =====================================================
-
-#define IN1 2
-#define IN2 3
-#define IN3 4
-#define IN4 5
-
-
-// =====================================================
-// SERVO
-// =====================================================
-
-#define PINO_SERVO 11
-
-Servo garra;
-
-
-// =====================================================
-// VARIÁVEIS
+// ROBÔ "SUMÔ INVERSO"
+// Arduino UNO + L298N + HC-SR04
+//
+// COMPORTAMENTO:
+//
+// 1. Anda para frente
+// 2. Encontrou obstáculo
+// 3. Para
+// 4. Gira para a DIREITA
+// 5. Continua girando até achar caminho livre
+// 6. Volta a andar para frente
+//
+// HC-SR04:
+// ECHO -> D8
+// TRIG -> D9
+//
+// L298N:
+// IN1 -> D4
+// IN2 -> D5
+// IN3 -> D6
+// IN4 -> D7
 // =====================================================
 
-String buffer = "";
+#define IN1 4
+#define IN2 5
+#define IN3 6
+#define IN4 7
 
-unsigned long ultimoCaractere = 0;
+#define ECHO 8
+#define TRIG 9
 
-const unsigned long TEMPO_COMANDO = 80;
+const float DISTANCIA_OBSTACULO = 20.0;
+
+const float DISTANCIA_LIVRE = 28.0;
+
+const unsigned long TEMPO_PASSO_GIRO = 90;
+
+const unsigned long PAUSA = 40;
 
 
 // =====================================================
@@ -446,34 +542,6 @@ void frente() {
 
 
 // =====================================================
-// TRÁS
-// =====================================================
-
-void tras() {
-
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, HIGH);
-
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, HIGH);
-}
-
-
-// =====================================================
-// ESQUERDA
-// =====================================================
-
-void esquerda() {
-
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, HIGH);
-
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
-}
-
-
-// =====================================================
 // DIREITA
 // =====================================================
 
@@ -488,81 +556,142 @@ void direita() {
 
 
 // =====================================================
-// CONTROLAR GARRA
+// LEITURA HC-SR04
 // =====================================================
 
-void moverGarra(int angulo) {
+float lerDistanciaSimples() {
 
-  angulo = constrain(angulo, 0, 180);
+  digitalWrite(TRIG, LOW);
 
-  garra.write(angulo);
+  delayMicroseconds(2);
+
+  digitalWrite(TRIG, HIGH);
+
+  delayMicroseconds(10);
+
+  digitalWrite(TRIG, LOW);
+
+  unsigned long duracao =
+    pulseIn(ECHO, HIGH, 25000);
+
+  if (duracao == 0) {
+
+    return 999;
+  }
+
+  float distancia =
+    (duracao * 0.0343) / 2.0;
+
+  return distancia;
 }
 
 
 // =====================================================
-// PROCESSAR VALOR DA GARRA
+// FILTRO
 // =====================================================
 
-void processarBuffer() {
+float lerDistancia() {
 
-  if (buffer.length() == 0) {
-    return;
+  float valores[5];
+
+  for (int i = 0; i < 5; i++) {
+
+    valores[i] =
+      lerDistanciaSimples();
+
+    delay(5);
   }
 
+  for (int i = 0; i < 4; i++) {
 
-  // Permite enviar:
-  //
-  // 90
-  //
-  // ou:
-  //
-  // G90
+    for (int j = i + 1; j < 5; j++) {
 
+      if (valores[j] < valores[i]) {
 
-  if (
-    buffer.charAt(0) == 'G' ||
-    buffer.charAt(0) == 'g'
-  ) {
+        float temp = valores[i];
 
-    buffer.remove(0, 1);
+        valores[i] = valores[j];
+
+        valores[j] = temp;
+      }
+    }
   }
 
-
-  if (buffer.length() > 0) {
-
-    bool numeroValido = true;
+  return valores[2];
+}
 
 
-    for (
-      unsigned int i = 0;
-      i < buffer.length();
-      i++
+// =====================================================
+// PROCURAR SAÍDA PARA DIREITA
+// =====================================================
+
+void procurarSaidaDireita() {
+
+  Serial.println();
+
+  Serial.println("==============================");
+
+  Serial.println("OBSTACULO DETECTADO");
+
+  Serial.println("Girando para DIREITA...");
+
+  Serial.println("==============================");
+
+  parar();
+
+  delay(150);
+
+  while (true) {
+
+    direita();
+
+    delay(TEMPO_PASSO_GIRO);
+
+    parar();
+
+    delay(80);
+
+    float distancia =
+      lerDistancia();
+
+    Serial.print(
+      "Procurando saida | Distancia: "
+    );
+
+    if (distancia == 999) {
+
+      Serial.println("LIVRE");
+
+      break;
+    }
+
+    Serial.print(distancia, 1);
+
+    Serial.println(" cm");
+
+    if (
+      distancia >= DISTANCIA_LIVRE
     ) {
 
-      if (!isDigit(buffer.charAt(i))) {
+      Serial.println();
 
-        numeroValido = false;
-      }
-    }
+      Serial.println(
+        "*** CAMINHO LIVRE ENCONTRADO ***"
+      );
 
-
-    if (numeroValido) {
-
-      int angulo = buffer.toInt();
-
-
-      if (
-        angulo >= 0 &&
-        angulo <= 180
-      ) {
-
-        moverGarra(angulo);
-      }
+      break;
     }
   }
 
+  parar();
 
-  buffer = "";
+  delay(150);
+
+  Serial.println(
+    "Voltando a andar para frente."
+  );
+
+  Serial.println();
 }
 
 
@@ -572,43 +701,40 @@ void processarBuffer() {
 
 void setup() {
 
-  // HC-05:
-  //
-  // D0 = RX
-  // D1 = TX
-
   Serial.begin(9600);
-
-
-  // ===================================================
-  // MOTORES
-  // ===================================================
 
   pinMode(IN1, OUTPUT);
   pinMode(IN2, OUTPUT);
-
   pinMode(IN3, OUTPUT);
   pinMode(IN4, OUTPUT);
 
-
-  // Começa parado
-
   parar();
 
+  pinMode(TRIG, OUTPUT);
 
-  // ===================================================
-  // SERVO
-  // ===================================================
+  pinMode(ECHO, INPUT);
 
-  garra.attach(PINO_SERVO);
+  digitalWrite(TRIG, LOW);
 
+  Serial.println();
 
-  // Posição inicial
+  Serial.println("==============================");
 
-  garra.write(90);
+  Serial.println(" ROBO SUMO INVERSO");
 
+  Serial.println("==============================");
 
-  delay(500);
+  Serial.println("ECHO = D8");
+
+  Serial.println("TRIG = D9");
+
+  Serial.println();
+
+  Serial.println("Iniciando...");
+
+  Serial.println();
+
+  delay(1000);
 }
 
 
@@ -618,318 +744,240 @@ void setup() {
 
 void loop() {
 
+  float distancia =
+    lerDistancia();
 
-  while (Serial.available() > 0) {
+  Serial.print("Distancia: ");
 
+  if (distancia == 999) {
 
-    char comando = Serial.read();
+    Serial.println("sem obstaculo");
 
-
-    ultimoCaractere = millis();
-
-
-    // =================================================
-    // FRENTE
-    // =================================================
-
-    if (
-      comando == 'F' ||
-      comando == 'f'
-    ) {
-
-      frente();
-
-      buffer = "";
-    }
-
-
-    // =================================================
-    // TRÁS
-    // =================================================
-
-    else if (
-      comando == 'T' ||
-      comando == 't' ||
-      comando == 'B' ||
-      comando == 'b'
-    ) {
-
-      tras();
-
-      buffer = "";
-    }
-
-
-    // =================================================
-    // ESQUERDA
-    // =================================================
-
-    else if (
-      comando == 'E' ||
-      comando == 'e'
-    ) {
-
-      esquerda();
-
-      buffer = "";
-    }
-
-
-    // =================================================
-    // DIREITA
-    // =================================================
-
-    else if (
-      comando == 'D' ||
-      comando == 'd'
-    ) {
-
-      direita();
-
-      buffer = "";
-    }
-
-
-    // =================================================
-    // PARAR
-    // =================================================
-
-    else if (
-      comando == 'P' ||
-      comando == 'p' ||
-      comando == 'S' ||
-      comando == 's'
-    ) {
-
-      parar();
-
-      buffer = "";
-    }
-
-
-    // =================================================
-    // COMANDO DA GARRA
-    // =================================================
-
-    else if (
-      isDigit(comando) ||
-      comando == 'G' ||
-      comando == 'g'
-    ) {
-
-      buffer += comando;
-    }
-
-
-    // =================================================
-    // FINAL DO COMANDO
-    // =================================================
-
-    else if (
-      comando == '\n' ||
-      comando == '\r' ||
-      comando == ';' ||
-      comando == '#'
-    ) {
-
-      processarBuffer();
-    }
   }
 
+  else {
 
-  // ===================================================
-  // PROCESSAR SEM ENTER
-  // ===================================================
+    Serial.print(distancia, 1);
+
+    Serial.println(" cm");
+  }
 
   if (
-    buffer.length() > 0 &&
-    millis() - ultimoCaractere > TEMPO_COMANDO
+    distancia != 999 &&
+    distancia <= DISTANCIA_OBSTACULO
   ) {
 
-    processarBuffer();
+    parar();
+
+    Serial.println(
+      "OBSTACULO NA FRENTE!"
+    );
+
+    procurarSaidaDireita();
   }
+
+  else {
+
+    frente();
+  }
+
+  delay(PAUSA);
 }
 ```
 
-# Fluxo do sistema
+---
+
+# 🧪 Teste recomendado
+
+Antes de colocar o robô no chão, faça o teste com as rodas levantadas.
+
+Abra o:
 
 ```text
-CELULAR
-   |
-   | Bluetooth
-   ↓
-HC-05
-   |
-   | Serial
-   ↓
-ARDUINO UNO
-   |
-   +--------------------+
-   |                    |
-   ↓                    ↓
- L298N                 SERVO
-   |                    |
-   ↓                    ↓
-2 MOTORES              GARRA
+Monitor Serial
 ```
 
-# Exemplo de funcionamento
-
-O celular envia:
+em:
 
 ```text
-F
+9600 baud
 ```
 
-O Arduino executa:
-
-```cpp
-frente();
-```
-
-A L298N aciona os dois motores e o carrinho anda para frente.
-
-Depois o celular envia:
+Você deve visualizar:
 
 ```text
-P
+ROBO SUMO INVERSO
+
+Distancia: 85.2 cm
+Distancia: 72.5 cm
+Distancia: 43.1 cm
+
+Distancia: 18.9 cm
+
+OBSTACULO NA FRENTE!
+
+Girando para DIREITA...
+
+Procurando saida | Distancia: 17.5 cm
+Procurando saida | Distancia: 19.3 cm
+Procurando saida | Distancia: 24.8 cm
+Procurando saida | Distancia: 31.2 cm
+
+*** CAMINHO LIVRE ENCONTRADO ***
+
+Voltando a andar para frente.
 ```
 
-O Arduino executa:
+---
 
-```cpp
-parar();
-```
+# ❌ Se os motores não girarem
 
-e os motores param.
-
-Se o celular enviar:
+Confira primeiro:
 
 ```text
-G120
+ENA → jumper colocado
+ENB → jumper colocado
 ```
 
-o Arduino executa:
-
-```cpp
-garra.write(120);
-```
-
-e a garra muda de posição.
-
-# Teste recomendado
-
-Antes de colocar o carrinho no chão, faça o primeiro teste com as rodas suspensas.
-
-Teste nesta ordem:
+Depois confira:
 
 ```text
-F
-P
-
-T
-P
-
-E
-P
-
-D
-P
+Arduino D4 → IN1
+Arduino D5 → IN2
+Arduino D6 → IN3
+Arduino D7 → IN4
 ```
 
-Depois teste a garra:
+E principalmente:
 
 ```text
-G0
-G45
-G90
-G135
-G180
+GND Arduino → GND L298N
 ```
 
-Observe se o servo consegue movimentar a garra sem forçar mecanicamente o mecanismo.
+Essa conexão é obrigatória.
 
-# Se uma roda girar ao contrário
+Confira também a alimentação dos motores.
 
-É possível que os dois motores estejam fisicamente montados em sentidos opostos.
+---
 
-Se o comando:
+# 🔄 Se uma roda girar ao contrário
+
+Se o motor conectado a:
 
 ```text
-F
+OUT3
+OUT4
 ```
 
-fizer uma roda andar para frente e a outra para trás, existem duas soluções.
+estiver girando ao contrário durante o movimento para frente, você pode trocar fisicamente os dois fios do motor:
 
-Você pode inverter os dois fios desse motor na saída da L298N.
+```text
+OUT3 ↔ OUT4
+```
 
-Ou alterar o código desse motor.
+ou alterar no código:
 
-Por exemplo, trocar:
+De:
 
 ```cpp
 digitalWrite(IN3, HIGH);
 digitalWrite(IN4, LOW);
 ```
 
-por:
+Para:
 
 ```cpp
 digitalWrite(IN3, LOW);
 digitalWrite(IN4, HIGH);
 ```
 
-O objetivo é que, ao receber `F`, as duas rodas empurrem fisicamente o carrinho para frente.
+Faça isso somente para o lado que estiver invertido.
 
-# Resumo dos comandos
+---
 
-```text
-F       = Frente
-
-T       = Trás
-B       = Trás
-
-E       = Esquerda
-
-D       = Direita
-
-P       = Parar
-S       = Parar
-
-G0      = Garra em 0°
-
-G45     = Garra em 45°
-
-G90     = Garra em 90°
-
-G135    = Garra em 135°
-
-G180    = Garra em 180°
-```
-
-# Cuidados importantes
-
-- Não ligue os motores diretamente aos pinos do Arduino.
-- Utilize a ponte H L298N.
-- Use uma bateria adequada para os motores.
-- Não alimente servo de alta corrente diretamente pelo Arduino.
-- Mantenha todos os GNDs em comum.
-- Utilize divisor de tensão no RX do HC-05.
-- Se o upload falhar, desconecte o HC-05 dos pinos `0` e `1`.
-- Teste os motores com as rodas levantadas antes de colocar o carrinho no chão.
-- Evite forçar o servo além dos limites físicos da garra.
-
-# Resultado
-
-Com este projeto, o Arduino Uno consegue receber comandos Bluetooth pelo HC-05 e controlar:
+# 📊 Resumo da pinagem
 
 ```text
-✓ Frente
-✓ Trás
-✓ Esquerda
-✓ Direita
-✓ Parada
-✓ Garra de 0° até 180°
+┌───────────────────────────────────┐
+│          ARDUINO UNO              │
+├────────────────┬──────────────────┤
+│ D4             │ L298N IN1        │
+│ D5             │ L298N IN2        │
+│ D6             │ L298N IN3        │
+│ D7             │ L298N IN4        │
+│ D8             │ HC-SR04 ECHO     │
+│ D9             │ HC-SR04 TRIG     │
+│ 5V             │ HC-SR04 VCC      │
+│ GND            │ HC-SR04 GND      │
+│ GND            │ L298N GND        │
+└────────────────┴──────────────────┘
 ```
 
-O HC-05 funciona como a comunicação entre o celular e o Arduino, enquanto a L298N controla os motores DC e o servo controla a abertura e o fechamento da garra.
+---
+
+# ⚠️ Regra principal da montagem
+
+```text
+ARDUINO GND
+     |
+     +-------- GND HC-SR04
+     |
+     +-------- GND L298N
+     |
+     +-------- NEGATIVO DA FONTE/BATERIA
+```
+
+Todos precisam possuir a mesma referência elétrica.
+
+## ✅ Nunca esqueça:
+
+> **O GND DA PONTE H DEVE ESTAR CONECTADO AO GND DO ARDUINO UNO.**
+
+---
+
+# 🚗 Resultado esperado
+
+Depois de ligado, o robô funciona sozinho:
+
+```text
+ANDA
+ ↓
+ANDA
+ ↓
+ANDA
+ ↓
+OBSTÁCULO
+ ↓
+PARA
+ ↓
+VIRA PARA DIREITA
+ ↓
+PROCURA
+ ↓
+PROCURA
+ ↓
+CAMINHO LIVRE
+ ↓
+ANDA
+ ↓
+ANDA
+ ↓
+...
+```
+
+O processo continua enquanto o Arduino estiver alimentado.
+
+---
+
+## Projeto
+
+**Robô autônomo com desvio de obstáculos**
+
+Tecnologias:
+
+- Arduino UNO
+- C/C++
+- L298N
+- HC-SR04
+- Motores DC
+- Navegação autônoma por ultrassom
